@@ -21,45 +21,64 @@ export class MatchFravegaCategoriesUseCase {
   ) {}
 
   async execute(offset = 0, limit = 50) {
-    console.log('Fetching products from Madre...');
-
-    const products = await this.madreRepository.getProducts(offset, limit);
-
-    console.log(`Products fetched: ${products.length}`);
+    console.log('Starting matcher process...');
 
     const categoriesTree = await this.categoriesRepository.getCategoriesTree();
 
-    console.log('Categories loaded');
+    console.log(`Categories loaded: ${categoriesTree.length}`);
 
-    for (const product of products) {
-      console.log(`Processing SKU: ${product.sku}`);
+    while (true) {
+      console.log(`Fetching products from Madre offset ${offset}`);
 
-      const exists = await this.categoryMatchRepository.exists(product.sku);
+      const products = await this.madreRepository.getProducts(offset, limit);
 
-      if (exists) {
-        console.log(`SKU ${product.sku} already matched`);
-        continue;
+      if (!products || products.length === 0) {
+        console.log('No more products. Matcher finished.');
+        break;
       }
 
-      const match = await this.openAIRepository.matchCategory(
-        product,
-        categoriesTree,
-      );
+      console.log(`Products fetched: ${products.length}`);
 
-      await this.categoryMatchRepository.save({
-        sku: product.sku,
-        categoryId: match.categoryId,
-        categoryName: match.categoryName,
-        categoryPath: match.categoryPath,
-      });
+      for (const product of products) {
+        try {
+          console.log(`Processing SKU: ${product.sku}`);
 
-      await this.sleep(300); // evita saturar OpenAI
+          const exists = await this.categoryMatchRepository.exists(product.sku);
+
+          if (exists) {
+            console.log(`SKU ${product.sku} already matched`);
+            continue;
+          }
+
+          const match = await this.retry(() =>
+            this.openAIRepository.matchCategory(product, categoriesTree),
+          );
+
+          await this.categoryMatchRepository.save({
+            sku: product.sku,
+            categoryId: match.categoryId,
+            categoryName: match.categoryName,
+            categoryPath: match.categoryPath,
+          });
+
+          console.log(`Saved match for ${product.sku}`);
+
+          await this.sleep(300);
+        } catch (error) {
+          console.error(`Error processing SKU ${product.sku}`, error);
+        }
+      }
+
+      offset += limit;
     }
 
+    console.log('Matcher completed');
+
     return {
-      processed: products.length,
+      message: 'Matcher finished',
     };
   }
+
   private sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -69,6 +88,7 @@ export class MatchFravegaCategoriesUseCase {
       return await fn();
     } catch (error) {
       if (retries === 0) {
+        console.error('Retry failed completely');
         throw error;
       }
 
