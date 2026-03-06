@@ -24,7 +24,7 @@ export class MadreRepository implements IMadreRepository {
         new Product({
           sku: p.sku,
           title: p.title,
-          description: p.description,
+          meliCategoryPath: p.categoryPath,
         }),
     );
   }

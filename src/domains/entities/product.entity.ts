@@ -1,11 +1,9 @@
 export class Product {
   sku: string;
   title: string;
-  description: string;
+  meliCategoryPath: string;
 
-  constructor(props: { sku: string; title: string; description: string }) {
-    this.sku = props.sku;
-    this.title = props.title;
-    this.description = props.description;
+  constructor(data: Partial<Product>) {
+    Object.assign(this, data);
   }
 }

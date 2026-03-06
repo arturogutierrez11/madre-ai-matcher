@@ -18,45 +18,43 @@ export class FravegaCategoriesRepository implements ICategoriesRepository {
 
     const response = await firstValueFrom(
       this.http.get(
-        'https://api.marketplace.loquieroaca.com/fravega/categoriesTree',
+        'https://api.madre.loquieroaca.com/api/categories/fravegaTree',
         {
           headers: { accept: '*/*' },
         },
       ),
     );
 
-    const categories = response.data.categories;
+    const tree = response.data;
 
-    const categoriesWithPath = this.buildCategoryPaths(categories);
+    const categoriesWithPath = this.flattenTree(tree);
 
     categoriesCache.set('fravega_categories', categoriesWithPath);
 
     return categoriesWithPath;
   }
 
-  private buildCategoryPaths(categories: any[]): any[] {
-    const map = new Map<string, any>();
+  private flattenTree(tree: any[]): any[] {
+    const result: any[] = [];
 
-    categories.forEach((cat) => {
-      map.set(cat.id, cat);
-    });
+    const traverse = (nodes: any[], parentPath: string[] = []) => {
+      for (const node of nodes) {
+        const currentPath = [...parentPath, node.name];
 
-    const buildPath = (cat: any): string => {
-      const path = [cat.name];
-      let parent = map.get(cat.parentId);
+        result.push({
+          id: node.id,
+          name: node.name,
+          path: currentPath.join(' > '),
+        });
 
-      while (parent) {
-        path.unshift(parent.name);
-        parent = map.get(parent.parentId);
+        if (node.children && node.children.length) {
+          traverse(node.children, currentPath);
+        }
       }
-
-      return path.join(' > ');
     };
 
-    return categories.map((cat) => ({
-      id: cat.id,
-      name: cat.name,
-      path: buildPath(cat),
-    }));
+    traverse(tree);
+
+    return result;
   }
 }

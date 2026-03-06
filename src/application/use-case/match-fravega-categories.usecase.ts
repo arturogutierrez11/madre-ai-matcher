@@ -21,7 +21,9 @@ export class MatchFravegaCategoriesUseCase {
   ) {}
 
   async execute(offset = 0, limit = 50) {
-    console.log('Starting matcher process...');
+    console.log('==============================');
+    console.log('Starting Fravega Matcher');
+    console.log('==============================');
 
     const categoriesTree = await this.categoriesRepository.getCategoriesTree();
 
@@ -41,7 +43,9 @@ export class MatchFravegaCategoriesUseCase {
 
       for (const product of products) {
         try {
-          console.log(`Processing SKU: ${product.sku}`);
+          console.log(
+            `Processing SKU: ${product.sku} | ML Category: ${product.meliCategoryPath}`,
+          );
 
           const exists = await this.categoryMatchRepository.exists(product.sku);
 
@@ -65,14 +69,17 @@ export class MatchFravegaCategoriesUseCase {
 
           await this.sleep(300);
         } catch (error) {
-          console.error(`Error processing SKU ${product.sku}`, error);
+          console.error(`Error processing SKU ${product.sku}`);
+          console.error(error);
         }
       }
 
       offset += limit;
     }
 
-    console.log('Matcher completed');
+    console.log('==============================');
+    console.log('Matcher Completed');
+    console.log('==============================');
 
     return {
       message: 'Matcher finished',

@@ -22,14 +22,15 @@ export class OpenAIRepository implements IOpenAIRepository {
 Sos experto en categorización de productos para marketplaces.
 
 Producto:
-SKU: ${product.sku}
 Titulo: ${product.title}
-Descripcion: ${product.description}
 
-Categorias disponibles:
+Categoria actual (MercadoLibre):
+${product.meliCategoryPath}
+
+Categorias disponibles en Fravega:
 ${JSON.stringify(categories)}
 
-Devuelve SOLO JSON con este formato:
+Devuelve SOLO JSON:
 
 {
  "categoryId": "",
