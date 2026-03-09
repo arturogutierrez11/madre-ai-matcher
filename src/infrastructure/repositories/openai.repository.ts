@@ -17,7 +17,28 @@ export class OpenAIRepository implements IOpenAIRepository {
     product: Product,
     categories: any[],
   ): Promise<CategoryMatchResult> {
+    console.log('--------------------------------');
+    console.log(`OpenAI MATCH START`);
+    console.log(`ML Category: ${product.meliCategoryPath}`);
+
+    // filtramos categorías por root
+    const root = product.meliCategoryPath?.split(' > ')[0]?.toLowerCase();
+
+    const filteredCategories = categories.filter((c) =>
+      c.path?.toLowerCase().includes(root),
+    );
+
+    const categoriesForPrompt =
+      filteredCategories.length > 0 ? filteredCategories : categories;
+
+    console.log(`Root detected: ${root}`);
+    console.log(`Fravega categories sent: ${categoriesForPrompt.length}`);
+
+    const start = Date.now();
+
     return this.retry(async () => {
+      console.log(`Calling OpenAI...`);
+
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4o-mini',
         temperature: 0,
@@ -32,16 +53,15 @@ export class OpenAIRepository implements IOpenAIRepository {
           {
             role: 'user',
             content: `
-Producto:
-${product.title}
-
 Categoria MercadoLibre:
 ${product.meliCategoryPath}
 
-Categorias Fravega:
-${JSON.stringify(categories)}
+Categorias disponibles en Fravega:
+${JSON.stringify(categoriesForPrompt)}
 
-Responde con el JSON:
+Selecciona la mejor coincidencia.
+
+Responde SOLO con JSON:
 
 {
  "categoryId": "",
@@ -53,13 +73,22 @@ Responde con el JSON:
         ],
       });
 
+      const duration = Date.now() - start;
+
+      console.log(`OpenAI response received (${duration} ms)`);
+
       const content = completion.choices[0].message.content;
 
       if (!content) {
         throw new Error('OpenAI returned empty response');
       }
 
-      return JSON.parse(content) as CategoryMatchResult;
+      const parsed = JSON.parse(content) as CategoryMatchResult;
+
+      console.log(`Matched Fravega category: ${parsed.categoryPath}`);
+      console.log('--------------------------------');
+
+      return parsed;
     });
   }
 
@@ -76,7 +105,7 @@ Responde con el JSON:
         throw error;
       }
 
-      console.log(`OpenAI retry... remaining: ${retries}`);
+      console.warn(`OpenAI retry... remaining attempts: ${retries}`);
 
       await new Promise((resolve) => setTimeout(resolve, delay));
 

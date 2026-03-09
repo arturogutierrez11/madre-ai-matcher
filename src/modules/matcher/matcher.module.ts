@@ -1,23 +1,23 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 
-import { MadreRepository } from '../../infrastructure/repositories/madre.repository';
+import { MatchController } from './matcher.controller';
+
+import { MatchMeliFravegaCategoriesUseCase } from 'src/application/use-case/match-meli-fravega-categories.usecase';
+
 import { FravegaCategoriesRepository } from '../../infrastructure/repositories/fravega-categories.repository';
 import { OpenAIRepository } from '../../infrastructure/repositories/openai.repository';
-import { CategoryMatchRepository } from '../../infrastructure/repositories/category-match.repository';
-import { MatchFravegaCategoriesUseCase } from 'src/application/use-case/match-fravega-categories.usecase';
-import { MatchController } from './matcher.controller';
+import { MeliCategoriesRepository } from '../../infrastructure/repositories/meli-categories.repository';
+import { MadreCategoryMatchRepository } from '../../infrastructure/repositories/madre-category-match.repository';
 
 @Module({
   imports: [HttpModule],
-  controllers: [MatchController],
-  providers: [
-    MatchFravegaCategoriesUseCase,
 
-    {
-      provide: 'IMadreRepository',
-      useClass: MadreRepository,
-    },
+  controllers: [MatchController],
+
+  providers: [
+    MatchMeliFravegaCategoriesUseCase,
+
     {
       provide: 'ICategoriesRepository',
       useClass: FravegaCategoriesRepository,
@@ -27,8 +27,12 @@ import { MatchController } from './matcher.controller';
       useClass: OpenAIRepository,
     },
     {
-      provide: 'ICategoryMatchRepository',
-      useClass: CategoryMatchRepository,
+      provide: 'IMeliCategoriesRepository',
+      useClass: MeliCategoriesRepository,
+    },
+    {
+      provide: 'IMadreCategoryMatchRepository',
+      useClass: MadreCategoryMatchRepository,
     },
   ],
 })
