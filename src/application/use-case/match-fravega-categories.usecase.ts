@@ -27,6 +27,8 @@ export class MatchFravegaCategoriesUseCase {
 
     const categoriesTree = await this.categoriesRepository.getCategoriesTree();
 
+    const categoryCache = new Map<string, any>();
+
     console.log(`Categories loaded: ${categoriesTree.length}`);
 
     while (true) {
@@ -54,9 +56,19 @@ export class MatchFravegaCategoriesUseCase {
             continue;
           }
 
-          const match = await this.retry(() =>
-            this.openAIRepository.matchCategory(product, categoriesTree),
-          );
+          let match;
+
+          // 🔹 CACHE CHECK
+          if (categoryCache.has(product.meliCategoryPath)) {
+            console.log('Using cached category');
+            match = categoryCache.get(product.meliCategoryPath);
+          } else {
+            match = await this.retry(() =>
+              this.openAIRepository.matchCategory(product, categoriesTree),
+            );
+
+            categoryCache.set(product.meliCategoryPath, match);
+          }
 
           await this.categoryMatchRepository.save({
             sku: product.sku,

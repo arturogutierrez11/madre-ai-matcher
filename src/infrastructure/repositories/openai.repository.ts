@@ -18,34 +18,37 @@ export class OpenAIRepository implements IOpenAIRepository {
     categories: any[],
   ): Promise<CategoryMatchResult> {
     return this.retry(async () => {
-      const prompt = `
-Sos experto en categorización de productos para marketplaces.
+      const completion = await this.openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        response_format: { type: 'json_object' },
 
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Sos experto en categorización de productos para marketplaces.',
+          },
+          {
+            role: 'user',
+            content: `
 Producto:
-Titulo: ${product.title}
+${product.title}
 
-Categoria actual (MercadoLibre):
+Categoria MercadoLibre:
 ${product.meliCategoryPath}
 
-Categorias disponibles en Fravega:
+Categorias Fravega:
 ${JSON.stringify(categories)}
 
-Devuelve SOLO JSON:
+Responde con el JSON:
 
 {
  "categoryId": "",
  "categoryName": "",
  "categoryPath": ""
 }
-`;
-
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        temperature: 0,
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
+`,
           },
         ],
       });
@@ -56,12 +59,7 @@ Devuelve SOLO JSON:
         throw new Error('OpenAI returned empty response');
       }
 
-      const clean = content
-        .replace(/```json/g, '')
-        .replace(/```/g, '')
-        .trim();
-
-      return JSON.parse(clean) as CategoryMatchResult;
+      return JSON.parse(content) as CategoryMatchResult;
     });
   }
 
