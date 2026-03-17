@@ -11,4 +11,13 @@ export interface IOpenAIRepository {
     product: Product,
     categories: any[],
   ): Promise<CategoryMatchResult>;
+
+  matchBrand(
+    meliBrand: string,
+    fravegaBrands: { id: string; name: string }[],
+  ): Promise<{
+    fravegaBrandId: string | null;
+    fravegaBrandName: string | null;
+    confidence: number;
+  }>;
 }
