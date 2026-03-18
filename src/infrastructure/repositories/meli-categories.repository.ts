@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { IMeliCategoriesRepository } from 'src/domains/interface/meli-categories.repository.interface';
+import { categoriesCache } from '../cache/categories.cache';
 
 @Injectable()
 export class MeliCategoriesRepository implements IMeliCategoriesRepository {
@@ -11,6 +12,13 @@ export class MeliCategoriesRepository implements IMeliCategoriesRepository {
   private startTime = 0;
 
   async getCategoriesTree(): Promise<any[]> {
+    const cached = categoriesCache.get<any[]>('meli_categories');
+
+    if (cached) {
+      console.log('Using cached ML categories');
+      return cached;
+    }
+
     console.log('==============================');
     console.log('Loading MercadoLibre categories tree');
     console.log('==============================');
@@ -24,29 +32,13 @@ export class MeliCategoriesRepository implements IMeliCategoriesRepository {
 
     const roots = rootsResponse.data;
 
-    console.log(`Root categories found: ${roots.length}`);
-    console.log('--------------------------------');
-
     const allCategories: any[] = [];
 
-    let rootIndex = 0;
-
     for (const root of roots) {
-      rootIndex++;
-
-      console.log(
-        `Processing root ${rootIndex}/${roots.length} → ${root.name} (${root.id})`,
-      );
-
       await this.traverseCategory(root.id, [], allCategories);
     }
 
-    const totalTime = ((Date.now() - this.startTime) / 1000).toFixed(2);
-
-    console.log('--------------------------------');
-    console.log(`Total ML categories loaded: ${this.loaded}`);
-    console.log(`Total time: ${totalTime}s`);
-    console.log('==============================');
+    categoriesCache.set('meli_categories', allCategories); // 👈 CLAVE
 
     return allCategories;
   }
