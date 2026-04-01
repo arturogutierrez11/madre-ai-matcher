@@ -9,6 +9,7 @@ import { ProductImagesRepository } from 'src/infrastructure/repositories/product
 import { ImageProcessorService } from 'src/infrastructure/services/image-processor.service';
 import { SpacesService } from 'src/infrastructure/services/spaces.service';
 import { FravegaImagesSyncConfigService } from 'src/infrastructure/services/fravega-images-sync-config.service';
+import { FravegaImagesSyncRunnerService } from './fravega-images-sync-runner.service';
 
 @Module({
   imports: [HttpModule],
@@ -22,6 +23,7 @@ import { FravegaImagesSyncConfigService } from 'src/infrastructure/services/frav
     ImageProcessorService,
     SpacesService,
     FravegaImagesSyncConfigService,
+    FravegaImagesSyncRunnerService,
     {
       provide: 'IProductImagesRepository',
       useClass: ProductImagesRepository,

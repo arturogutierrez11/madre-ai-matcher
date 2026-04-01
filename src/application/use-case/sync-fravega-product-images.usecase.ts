@@ -41,6 +41,7 @@ export interface SyncAllFravegaProductImagesInput {
   perProductImageConcurrency?: number;
   maxImagesPerProduct?: number;
   skipExistingUploadChecks?: boolean;
+  fromEnd?: boolean;
 }
 
 interface ProductSyncSuccess {
@@ -88,6 +89,7 @@ export interface SyncAllFravegaProductImagesResult {
   skipped: number;
   failed: number;
   completed: boolean;
+  fromEnd: boolean;
   batchResults: Array<{
     batch: number;
     offset: number;
@@ -188,10 +190,13 @@ export class SyncFravegaProductImagesUseCase {
   async executeAll(
     input: SyncAllFravegaProductImagesInput,
   ): Promise<SyncAllFravegaProductImagesResult> {
-    const startedAtOffset = input.startOffset ?? 0;
+    const fromEnd = input.fromEnd ?? false;
     const limit = input.limit ?? 100;
     const dryRun = input.dryRun ?? false;
     const maxBatches = input.maxBatches;
+    const startedAtOffset = fromEnd
+      ? await this.resolveLastOffset(limit, input.startOffset)
+      : (input.startOffset ?? 0);
 
     let currentOffset = startedAtOffset;
     let batches = 0;
@@ -212,7 +217,7 @@ export class SyncFravegaProductImagesUseCase {
       }
 
       this.logger.log(
-        `Starting Fravega images batch ${batches + 1} offset=${currentOffset} limit=${limit} dryRun=${dryRun}`,
+        `Starting Fravega images batch ${batches + 1} offset=${currentOffset} limit=${limit} dryRun=${dryRun} fromEnd=${fromEnd}`,
       );
 
       const batchResult = await this.execute({
@@ -247,7 +252,15 @@ export class SyncFravegaProductImagesUseCase {
         break;
       }
 
-      currentOffset += limit;
+      if (fromEnd) {
+        if (currentOffset === 0) {
+          break;
+        }
+
+        currentOffset = Math.max(0, currentOffset - limit);
+      } else {
+        currentOffset += limit;
+      }
     }
 
     return {
@@ -261,6 +274,7 @@ export class SyncFravegaProductImagesUseCase {
       skipped,
       failed,
       completed,
+      fromEnd,
       batchResults,
       failures,
     };
@@ -607,6 +621,27 @@ export class SyncFravegaProductImagesUseCase {
     );
 
     await Promise.all(workers);
+  }
+
+  private async resolveLastOffset(
+    limit: number,
+    startOffset?: number,
+  ): Promise<number> {
+    if (startOffset !== undefined) {
+      return startOffset;
+    }
+
+    const firstPage =
+      await this.fravegaPublishedProductsRepository.getPublishedProductsPage({
+        offset: 0,
+        limit: 1,
+      });
+
+    if (!firstPage.total || firstPage.total <= 0) {
+      return 0;
+    }
+
+    return Math.max(0, Math.floor((firstPage.total - 1) / limit) * limit);
   }
 
   private formatError(error: unknown): string {

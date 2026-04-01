@@ -37,7 +37,19 @@ type PublishedProductsApiResponse =
   | {
       data?: FravegaPublishedProductItem[];
       items?: FravegaPublishedProductItem[];
+      total?: number;
+      count?: number;
+      limit?: number;
+      offset?: number;
     };
+
+export interface FravegaPublishedProductsPage {
+  items: FravegaPublishedProductItem[];
+  total?: number;
+  count?: number;
+  limit?: number;
+  offset?: number;
+}
 
 @Injectable()
 export class FravegaPublishedProductsRepository {
@@ -51,6 +63,16 @@ export class FravegaPublishedProductsRepository {
     limit: number;
     refIds?: string[];
   }): Promise<FravegaPublishedProductItem[]> {
+    const page = await this.getPublishedProductsPage(params);
+
+    return page.items;
+  }
+
+  async getPublishedProductsPage(params: {
+    offset: number;
+    limit: number;
+    refIds?: string[];
+  }): Promise<FravegaPublishedProductsPage> {
     const response = await firstValueFrom(
       this.httpService.get<PublishedProductsApiResponse>(
         `${this.configService.publishedProductsBaseUrl}${this.configService.publishedProductsPath}`,
@@ -70,12 +92,23 @@ export class FravegaPublishedProductsRepository {
       ? response.data
       : (response.data.data ?? response.data.items ?? []);
 
+    const page: FravegaPublishedProductsPage = {
+      items,
+      total: Array.isArray(response.data) ? undefined : response.data.total,
+      count: Array.isArray(response.data) ? undefined : response.data.count,
+      limit: Array.isArray(response.data) ? undefined : response.data.limit,
+      offset: Array.isArray(response.data) ? undefined : response.data.offset,
+    };
+
     if (!params.refIds?.length) {
-      return items;
+      return page;
     }
 
     const refIds = new Set(params.refIds);
 
-    return items.filter((item) => refIds.has(item.refId));
+    return {
+      ...page,
+      items: items.filter((item) => refIds.has(item.refId)),
+    };
   }
 }

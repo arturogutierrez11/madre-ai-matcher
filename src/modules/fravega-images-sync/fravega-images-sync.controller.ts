@@ -4,11 +4,13 @@ import {
   SyncFravegaProductImagesInput,
   SyncFravegaProductImagesUseCase,
 } from 'src/application/use-case/sync-fravega-product-images.usecase';
+import { FravegaImagesSyncRunnerService } from './fravega-images-sync-runner.service';
 
 @Controller('fravega-images-sync')
 export class FravegaImagesSyncController {
   constructor(
     private readonly syncFravegaProductImagesUseCase: SyncFravegaProductImagesUseCase,
+    private readonly fravegaImagesSyncRunnerService: FravegaImagesSyncRunnerService,
   ) {}
 
   private readonly turboConfig = {
@@ -76,6 +78,7 @@ export class FravegaImagesSyncController {
     @Query('maxBatches') maxBatches?: string,
     @Query('turbo') turbo?: string,
     @Query('fast') fast?: string,
+    @Query('fromEnd') fromEnd?: string,
   ) {
     const turboEnabled = turbo === 'true';
     const fastEnabled = fast === 'true';
@@ -106,8 +109,82 @@ export class FravegaImagesSyncController {
       skipExistingUploadChecks: fastEnabled
         ? this.fastConfig.skipExistingUploadChecks
         : undefined,
+      fromEnd: fromEnd === 'true',
     };
 
     return this.syncFravegaProductImagesUseCase.executeAll(input);
+  }
+
+  @Get('run-all-background')
+  runAllBackground(
+    @Query('startOffset') startOffset?: string,
+    @Query('offset') offset?: string,
+    @Query('limit') limit?: string,
+    @Query('dryRun') dryRun?: string,
+    @Query('maxBatches') maxBatches?: string,
+    @Query('turbo') turbo?: string,
+    @Query('fast') fast?: string,
+    @Query('fromEnd') fromEnd?: string,
+  ) {
+    const input = this.buildRunAllInput({
+      startOffset,
+      offset,
+      limit,
+      dryRun,
+      maxBatches,
+      turbo,
+      fast,
+      fromEnd,
+    });
+
+    return this.fravegaImagesSyncRunnerService.start(input);
+  }
+
+  @Get('run-all-status')
+  runAllStatus() {
+    return this.fravegaImagesSyncRunnerService.getStatus();
+  }
+
+  private buildRunAllInput(params: {
+    startOffset?: string;
+    offset?: string;
+    limit?: string;
+    dryRun?: string;
+    maxBatches?: string;
+    turbo?: string;
+    fast?: string;
+    fromEnd?: string;
+  }): SyncAllFravegaProductImagesInput {
+    const turboEnabled = params.turbo === 'true';
+    const fastEnabled = params.fast === 'true';
+    const speedConfig = fastEnabled ? this.fastConfig : this.turboConfig;
+
+    return {
+      startOffset: params.startOffset
+        ? Number(params.startOffset)
+        : params.offset
+          ? Number(params.offset)
+          : 0,
+      limit: params.limit
+        ? Number(params.limit)
+        : turboEnabled || fastEnabled
+          ? speedConfig.limit
+          : 100,
+      dryRun: params.dryRun === 'true',
+      maxBatches: params.maxBatches ? Number(params.maxBatches) : undefined,
+      batchConcurrency:
+        turboEnabled || fastEnabled ? speedConfig.batchConcurrency : undefined,
+      perProductImageConcurrency:
+        turboEnabled || fastEnabled
+          ? speedConfig.perProductImageConcurrency
+          : undefined,
+      maxImagesPerProduct: fastEnabled
+        ? this.fastConfig.maxImagesPerProduct
+        : undefined,
+      skipExistingUploadChecks: fastEnabled
+        ? this.fastConfig.skipExistingUploadChecks
+        : undefined,
+      fromEnd: params.fromEnd === 'true',
+    };
   }
 }
