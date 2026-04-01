@@ -115,10 +115,10 @@ Responde SOLO con JSON:
 
   async matchBrand(
     meliBrand: string,
-    fravegaBrands: { id: string; name: string }[],
+    brands: { id: string; name: string }[],
   ): Promise<{
-    fravegaBrandId: string | null;
-    fravegaBrandName: string | null;
+    brandId: string | null;
+    brandName: string | null;
     confidence: number;
   }> {
     console.log('--------------------------------');
@@ -129,6 +129,9 @@ Responde SOLO con JSON:
 
     return this.retry(async () => {
       console.log(`Calling OpenAI...`);
+
+      /** 🔥 Limitar cantidad para ahorrar tokens */
+      const limitedBrands = brands.slice(0, 20);
 
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4o-mini',
@@ -141,28 +144,27 @@ Responde SOLO con JSON:
             content: `
 Sos un especialista en normalización y matching de marcas de ecommerce.
 
-Tu objetivo es encontrar la marca de Fravega que corresponda EXACTAMENTE
+Tu objetivo es encontrar la marca del marketplace que corresponda EXACTAMENTE
 a la marca de MercadoLibre.
 
 Reglas estrictas:
 
-1. Solo seleccionar una marca si estás seguro que representan la MISMA empresa o marca.
-2. No seleccionar marcas que sean solo similares o parcialmente coincidentes.
-3. No confundir líneas de producto, modelos o colecciones con marcas.
-4. Ignorar diferencias menores como:
+1. Solo seleccionar una marca si estás seguro que representan la MISMA marca.
+2. No seleccionar marcas similares o parciales.
+3. No confundir modelos, líneas o productos con marcas.
+4. Ignorar diferencias menores:
    - mayúsculas/minúsculas
    - espacios
    - símbolos
-   - "Inc", "Corp", "Co", "Ltd"
-5. Si no existe una coincidencia clara, devolver null.
-6. Nunca inventar marcas que no estén en la lista.
+   - sufijos como Inc, Corp, Ltd, etc.
+5. Si no hay coincidencia clara, devolver null.
+6. Nunca inventar marcas.
 
-El confidence debe reflejar la certeza real del match:
-
-1.0 → exactamente la misma marca  
-0.9 → misma marca con pequeñas variaciones  
-0.7 → probable pero no totalmente seguro  
-<0.6 → no es match confiable (usar null)
+Confidence:
+1.0 → match exacto  
+0.9 → misma marca con variaciones  
+0.7 → probable  
+<0.6 → no confiable (usar null)
 `,
           },
           {
@@ -171,24 +173,24 @@ El confidence debe reflejar la certeza real del match:
 Marca de MercadoLibre:
 "${meliBrand}"
 
-Lista de marcas disponibles en Fravega:
-${JSON.stringify(fravegaBrands)}
+Lista de marcas disponibles:
+${JSON.stringify(limitedBrands)}
 
-Selecciona la mejor coincidencia SOLO si es claramente la misma marca.
+Seleccioná la mejor coincidencia.
 
-Responde SOLO con JSON:
+Respondé SOLO JSON:
 
 {
- "fravegaBrandId": string | null,
- "fravegaBrandName": string | null,
+ "brandId": string | null,
+ "brandName": string | null,
  "confidence": number
 }
 
-Si no hay coincidencia clara:
+Si no hay match:
 
 {
- "fravegaBrandId": null,
- "fravegaBrandName": null,
+ "brandId": null,
+ "brandName": null,
  "confidence": 0
 }
 `,
@@ -197,7 +199,6 @@ Si no hay coincidencia clara:
       });
 
       const duration = Date.now() - start;
-
       console.log(`OpenAI response received (${duration} ms)`);
 
       const content = completion.choices[0].message.content;
@@ -206,13 +207,39 @@ Si no hay coincidencia clara:
         throw new Error('OpenAI returned empty response');
       }
 
-      const parsed = JSON.parse(content);
+      console.log('OpenAI RAW:', content);
 
-      console.log(`Matched Fravega brand: ${parsed.fravegaBrandName}`);
+      let parsed: any;
+
+      try {
+        parsed = JSON.parse(content);
+      } catch (error) {
+        console.error('Error parsing OpenAI response:', content);
+        throw error;
+      }
+
+      /** 🔥 Validación fuerte (evita basura) */
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        (!parsed.brandId && parsed.confidence > 0)
+      ) {
+        return {
+          brandId: null,
+          brandName: null,
+          confidence: 0,
+        };
+      }
+
+      console.log(`Matched brand: ${parsed.brandName}`);
       console.log(`Confidence: ${parsed.confidence}`);
       console.log('--------------------------------');
 
-      return parsed;
+      return {
+        brandId: parsed.brandId ?? null,
+        brandName: parsed.brandName ?? null,
+        confidence: parsed.confidence ?? 0,
+      };
     });
   }
 }

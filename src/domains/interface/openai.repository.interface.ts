@@ -14,10 +14,10 @@ export interface IOpenAIRepository {
 
   matchBrand(
     meliBrand: string,
-    fravegaBrands: { id: string; name: string }[],
+    brands: { id: string; name: string }[],
   ): Promise<{
-    fravegaBrandId: string | null;
-    fravegaBrandName: string | null;
+    brandId: string | null;
+    brandName: string | null;
     confidence: number;
   }>;
 }

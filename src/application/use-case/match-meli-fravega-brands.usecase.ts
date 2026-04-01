@@ -64,7 +64,7 @@ export class MatchMeliFravegaBrandsUseCase {
         processed++;
 
         try {
-          /** limpiar basura */
+          /** 🧹 limpiar basura */
           if (!meliBrand || meliBrand.length < 2) {
             skipped++;
             continue;
@@ -77,7 +77,7 @@ export class MatchMeliFravegaBrandsUseCase {
             continue;
           }
 
-          /** evitar reprocesar */
+          /** 🚫 evitar reprocesar */
           const exists =
             await this.madreRepository.existsByMeliBrand?.(meliBrand);
 
@@ -86,10 +86,10 @@ export class MatchMeliFravegaBrandsUseCase {
             continue;
           }
 
-          /** buscar candidatos */
+          /** 🔎 buscar candidatos */
           const candidates = this.findCandidates(meliBrand, fravegaBrands);
 
-          /** match exacto */
+          /** ⚡ match exacto */
           const exact = candidates.find(
             (c) => this.normalize(c.name) === this.normalize(meliBrand),
           );
@@ -111,42 +111,39 @@ export class MatchMeliFravegaBrandsUseCase {
             continue;
           }
 
-          /** si no hay candidatos skip */
+          /** 🚫 sin candidatos */
           if (candidates.length === 0) {
             skipped++;
             continue;
           }
 
-          /** limitar candidatos para OpenAI */
+          /** 🎯 limitar candidatos */
           const limitedCandidates = candidates.slice(0, 20);
 
-          /** OpenAI */
+          /** 🤖 OpenAI */
           const match = await this.openAIRepository.matchBrand(
             meliBrand,
             limitedCandidates,
           );
 
-          /** si OpenAI no encontró match válido */
-          if (
-            !match.fravegaBrandId ||
-            !match.fravegaBrandName ||
-            match.confidence < 0.7
-          ) {
+          /** 🚫 validar resultado */
+          if (!match.brandId || !match.brandName || match.confidence < 0.7) {
             skipped++;
             continue;
           }
 
+          /** 💾 guardar */
           await this.madreRepository.saveMatch({
             meliBrand,
-            fravegaBrandId: match.fravegaBrandId,
-            fravegaBrandName: match.fravegaBrandName,
+            fravegaBrandId: match.brandId,
+            fravegaBrandName: match.brandName,
             confidence: match.confidence,
           });
 
           matched++;
 
           console.log(
-            `✔ AI MATCH → ML: ${meliBrand} → FRAVEGA: ${match.fravegaBrandName}`,
+            `✔ AI MATCH → ML: ${meliBrand} → FRAVEGA: ${match.brandName}`,
           );
         } catch (error) {
           errors++;
@@ -161,10 +158,9 @@ export class MatchMeliFravegaBrandsUseCase {
           errors,
         });
 
-        /** progreso extendido */
+        /** 📊 progreso */
         if (processed % 20 === 0) {
           const elapsed = (Date.now() - startTime) / 1000;
-
           const rate = processed / elapsed;
 
           console.log('--------------------------------');
@@ -203,10 +199,10 @@ export class MatchMeliFravegaBrandsUseCase {
       .trim();
   }
 
-  private findCandidates(meliBrand: string, fravegaBrands: any[]) {
+  private findCandidates(meliBrand: string, brands: any[]) {
     const normalized = this.normalize(meliBrand);
 
-    return fravegaBrands.filter((b) => {
+    return brands.filter((b) => {
       const name = this.normalize(b.name);
 
       return (
