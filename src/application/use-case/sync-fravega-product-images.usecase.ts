@@ -26,6 +26,9 @@ export interface SyncFravegaProductImagesInput {
   limit?: number;
   refIds?: string[];
   dryRun?: boolean;
+  batchConcurrency?: number;
+  perProductImageConcurrency?: number;
+  maxImagesPerProduct?: number;
 }
 
 export interface SyncAllFravegaProductImagesInput {
@@ -33,6 +36,9 @@ export interface SyncAllFravegaProductImagesInput {
   limit?: number;
   dryRun?: boolean;
   maxBatches?: number;
+  batchConcurrency?: number;
+  perProductImageConcurrency?: number;
+  maxImagesPerProduct?: number;
 }
 
 interface ProductSyncSuccess {
@@ -127,33 +133,43 @@ export class SyncFravegaProductImagesUseCase {
     const failures: ProductSyncFailure[] = [];
     let skipped = 0;
 
-    await this.processInBatches(products, async (product) => {
-      try {
-        const result = await this.processSingleProduct({
-          product,
-          dryRun,
-        });
+    await this.processInBatchesWithConcurrency(
+      products,
+      async (product) => {
+        try {
+          const result = await this.processSingleProduct({
+            product,
+            dryRun,
+            perProductImageConcurrency:
+              input.perProductImageConcurrency ??
+              this.configService.perProductImageConcurrency,
+            maxImagesPerProduct:
+              input.maxImagesPerProduct ??
+              this.configService.maxImagesPerProduct,
+          });
 
-        if (result === null) {
-          skipped += 1;
-          return;
+          if (result === null) {
+            skipped += 1;
+            return;
+          }
+
+          successes.push(result);
+        } catch (error) {
+          const message = this.formatError(error);
+
+          failures.push({
+            refId: product.refId,
+            fravegaSku: product.sku,
+            error: message,
+          });
+
+          this.logger.error(
+            `Failed syncing images for refId ${product.refId}: ${message}`,
+          );
         }
-
-        successes.push(result);
-      } catch (error) {
-        const message = this.formatError(error);
-
-        failures.push({
-          refId: product.refId,
-          fravegaSku: product.sku,
-          error: message,
-        });
-
-        this.logger.error(
-          `Failed syncing images for refId ${product.refId}: ${message}`,
-        );
-      }
-    });
+      },
+      input.batchConcurrency ?? this.configService.batchConcurrency,
+    );
 
     return {
       totalRequested: products.length,
@@ -200,6 +216,9 @@ export class SyncFravegaProductImagesUseCase {
         offset: currentOffset,
         limit,
         dryRun,
+        batchConcurrency: input.batchConcurrency,
+        perProductImageConcurrency: input.perProductImageConcurrency,
+        maxImagesPerProduct: input.maxImagesPerProduct,
       });
 
       batches += 1;
@@ -246,6 +265,8 @@ export class SyncFravegaProductImagesUseCase {
   private async processSingleProduct(input: {
     product: FravegaPublishedProductItem;
     dryRun: boolean;
+    perProductImageConcurrency: number;
+    maxImagesPerProduct: number;
   }): Promise<ProductSyncSuccess | null> {
     if (this.productAlreadyHasImages(input.product)) {
       this.logger.log(
@@ -267,7 +288,10 @@ export class SyncFravegaProductImagesUseCase {
       throw new Error('Product has no source images in madre-api');
     }
 
-    const images = this.selectProcessableImages(madreProduct.images);
+    const images = this.selectProcessableImages(
+      madreProduct.images,
+      input.maxImagesPerProduct,
+    );
 
     if (!images.length) {
       throw new Error('Product images are empty after filtering invalid URLs');
@@ -277,7 +301,7 @@ export class SyncFravegaProductImagesUseCase {
       images,
       async (image) =>
         this.prepareProductImage(input.product.refId, image, input.dryRun),
-      this.configService.perProductImageConcurrency,
+      input.perProductImageConcurrency,
     );
 
     const sortedPreparedImages = preparedImages.sort(
@@ -467,11 +491,12 @@ export class SyncFravegaProductImagesUseCase {
 
   private selectProcessableImages(
     images: MadreProductImage[],
+    maxImagesPerProduct: number,
   ): MadreProductImage[] {
     return images
       .filter((image) => typeof image.url === 'string' && image.url.length > 0)
       .sort((left, right) => left.position - right.position)
-      .slice(0, this.configService.maxImagesPerProduct);
+      .slice(0, maxImagesPerProduct);
   }
 
   private filterValidProducts(products: FravegaPublishedProductItem[]) {
@@ -516,23 +541,11 @@ export class SyncFravegaProductImagesUseCase {
     items: T[],
     handler: (item: T) => Promise<void>,
   ): Promise<void> {
-    const concurrency = Math.max(1, this.configService.batchConcurrency);
-    let index = 0;
-
-    const workers = Array.from(
-      { length: Math.min(concurrency, items.length) },
-      async () => {
-        while (index < items.length) {
-          const currentIndex = index;
-
-          index += 1;
-
-          await handler(items[currentIndex]);
-        }
-      },
+    await this.processInBatchesWithConcurrency(
+      items,
+      async (item) => handler(item),
+      this.configService.batchConcurrency,
     );
-
-    await Promise.all(workers);
   }
 
   private async mapInBatches<T, TResult>(
