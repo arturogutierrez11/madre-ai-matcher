@@ -29,6 +29,7 @@ export interface SyncFravegaProductImagesInput {
   batchConcurrency?: number;
   perProductImageConcurrency?: number;
   maxImagesPerProduct?: number;
+  skipExistingUploadChecks?: boolean;
 }
 
 export interface SyncAllFravegaProductImagesInput {
@@ -39,6 +40,7 @@ export interface SyncAllFravegaProductImagesInput {
   batchConcurrency?: number;
   perProductImageConcurrency?: number;
   maxImagesPerProduct?: number;
+  skipExistingUploadChecks?: boolean;
 }
 
 interface ProductSyncSuccess {
@@ -146,6 +148,7 @@ export class SyncFravegaProductImagesUseCase {
             maxImagesPerProduct:
               input.maxImagesPerProduct ??
               this.configService.maxImagesPerProduct,
+            skipExistingUploadChecks: input.skipExistingUploadChecks ?? false,
           });
 
           if (result === null) {
@@ -219,6 +222,7 @@ export class SyncFravegaProductImagesUseCase {
         batchConcurrency: input.batchConcurrency,
         perProductImageConcurrency: input.perProductImageConcurrency,
         maxImagesPerProduct: input.maxImagesPerProduct,
+        skipExistingUploadChecks: input.skipExistingUploadChecks,
       });
 
       batches += 1;
@@ -267,6 +271,7 @@ export class SyncFravegaProductImagesUseCase {
     dryRun: boolean;
     perProductImageConcurrency: number;
     maxImagesPerProduct: number;
+    skipExistingUploadChecks: boolean;
   }): Promise<ProductSyncSuccess | null> {
     if (this.productAlreadyHasImages(input.product)) {
       this.logger.log(
@@ -300,7 +305,12 @@ export class SyncFravegaProductImagesUseCase {
     const preparedImages = await this.mapInBatches(
       images,
       async (image) =>
-        this.prepareProductImage(input.product.refId, image, input.dryRun),
+        this.prepareProductImage(
+          input.product.refId,
+          image,
+          input.dryRun,
+          input.skipExistingUploadChecks,
+        ),
       input.perProductImageConcurrency,
     );
 
@@ -350,11 +360,13 @@ export class SyncFravegaProductImagesUseCase {
     sku: string;
     image: MadreProductImage;
     dryRun: boolean;
+    skipExistingUploadChecks: boolean;
   }): Promise<EnsuredProductImage> {
     const existingCdnUrl = await this.resolveExistingProductImageUrl({
       sku: input.sku,
       position: input.image.position,
       dryRun: input.dryRun,
+      skipExistingUploadChecks: input.skipExistingUploadChecks,
     });
 
     if (existingCdnUrl) {
@@ -393,6 +405,7 @@ export class SyncFravegaProductImagesUseCase {
     sku: string,
     image: MadreProductImage,
     dryRun: boolean,
+    skipExistingUploadChecks: boolean,
   ): Promise<PreparedProductImage> {
     this.logger.log(`Processing image ${image.position} for refId ${sku}`);
 
@@ -400,6 +413,7 @@ export class SyncFravegaProductImagesUseCase {
       sku,
       image,
       dryRun,
+      skipExistingUploadChecks,
     });
 
     return {
@@ -424,6 +438,7 @@ export class SyncFravegaProductImagesUseCase {
     sku: string;
     position: number;
     dryRun: boolean;
+    skipExistingUploadChecks: boolean;
   }): Promise<string | null> {
     const cdnUrl = this.spacesService.buildProductImageUrl(
       input.sku,
@@ -435,6 +450,10 @@ export class SyncFravegaProductImagesUseCase {
     }
 
     if (!this.configService.skipExistingUploads) {
+      return null;
+    }
+
+    if (input.skipExistingUploadChecks) {
       return null;
     }
 

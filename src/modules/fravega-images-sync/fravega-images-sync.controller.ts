@@ -18,10 +18,11 @@ export class FravegaImagesSyncController {
   };
 
   private readonly fastConfig = {
-    limit: 300,
-    batchConcurrency: 14,
+    limit: 400,
+    batchConcurrency: 20,
     perProductImageConcurrency: 5,
     maxImagesPerProduct: 2,
+    skipExistingUploadChecks: true,
   };
 
   @Get('run')
@@ -57,6 +58,9 @@ export class FravegaImagesSyncController {
           : undefined,
       maxImagesPerProduct: fastEnabled
         ? this.fastConfig.maxImagesPerProduct
+        : undefined,
+      skipExistingUploadChecks: fastEnabled
+        ? this.fastConfig.skipExistingUploadChecks
         : undefined,
     };
 
@@ -98,6 +102,9 @@ export class FravegaImagesSyncController {
           : undefined,
       maxImagesPerProduct: fastEnabled
         ? this.fastConfig.maxImagesPerProduct
+        : undefined,
+      skipExistingUploadChecks: fastEnabled
+        ? this.fastConfig.skipExistingUploadChecks
         : undefined,
     };
 
