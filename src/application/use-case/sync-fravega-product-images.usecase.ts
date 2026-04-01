@@ -54,6 +54,11 @@ interface EnsuredProductImage {
   reusedExistingImage: boolean;
 }
 
+interface PreparedProductImage {
+  payloadImage: FravegaUpdateImagePayload;
+  persistedImage: PersistedProductImage;
+}
+
 export interface SyncFravegaProductImagesResult {
   totalRequested: number;
   processed: number;
@@ -242,6 +247,14 @@ export class SyncFravegaProductImagesUseCase {
     product: FravegaPublishedProductItem;
     dryRun: boolean;
   }): Promise<ProductSyncSuccess | null> {
+    if (this.productAlreadyHasImages(input.product)) {
+      this.logger.log(
+        `Skipping refId ${input.product.refId} because it already has images in Fravega`,
+      );
+
+      return null;
+    }
+
     this.logger.log(
       `Loading madre-api images for refId ${input.product.refId}`,
     );
@@ -260,36 +273,24 @@ export class SyncFravegaProductImagesUseCase {
       throw new Error('Product images are empty after filtering invalid URLs');
     }
 
-    const payloadImages: FravegaUpdateImagePayload[] = [];
-    const persistedImages: PersistedProductImage[] = [];
+    const preparedImages = await this.mapInBatches(
+      images,
+      async (image) =>
+        this.prepareProductImage(input.product.refId, image, input.dryRun),
+      this.configService.perProductImageConcurrency,
+    );
 
-    for (const image of images) {
-      this.logger.log(
-        `Processing image ${image.position} for refId ${input.product.refId}`,
-      );
+    const sortedPreparedImages = preparedImages.sort(
+      (left, right) =>
+        Number(left.payloadImage.Id) - Number(right.payloadImage.Id),
+    );
 
-      const ensuredImage = await this.ensureProductImage({
-        sku: input.product.refId,
-        image,
-        dryRun: input.dryRun,
-      });
-
-      payloadImages.push({
-        Type: 'url',
-        Id: String(image.position),
-        Url: ensuredImage.cdnUrl,
-      });
-
-      persistedImages.push({
-        sku: input.product.refId,
-        marketplace: 'fravega',
-        originalUrl: image.url,
-        cdnUrl: ensuredImage.cdnUrl,
-        position: image.position,
-        isMain: image.position === 1,
-        status: ensuredImage.reusedExistingImage ? 'skipped' : 'processed',
-      });
-    }
+    const payloadImages = sortedPreparedImages.map(
+      (image) => image.payloadImage,
+    );
+    const persistedImages = sortedPreparedImages.map(
+      (image) => image.persistedImage,
+    );
 
     await this.productImagesRepository.saveMany(persistedImages);
 
@@ -364,6 +365,37 @@ export class SyncFravegaProductImagesUseCase {
     };
   }
 
+  private async prepareProductImage(
+    sku: string,
+    image: MadreProductImage,
+    dryRun: boolean,
+  ): Promise<PreparedProductImage> {
+    this.logger.log(`Processing image ${image.position} for refId ${sku}`);
+
+    const ensuredImage = await this.ensureProductImage({
+      sku,
+      image,
+      dryRun,
+    });
+
+    return {
+      payloadImage: {
+        Type: 'url',
+        Id: String(image.position),
+        Url: ensuredImage.cdnUrl,
+      },
+      persistedImage: {
+        sku,
+        marketplace: 'fravega',
+        originalUrl: image.url,
+        cdnUrl: ensuredImage.cdnUrl,
+        position: image.position,
+        isMain: image.position === 1,
+        status: ensuredImage.reusedExistingImage ? 'skipped' : 'processed',
+      },
+    };
+  }
+
   private async resolveExistingProductImageUrl(input: {
     sku: string;
     position: number;
@@ -382,7 +414,9 @@ export class SyncFravegaProductImagesUseCase {
       return null;
     }
 
-    if (await this.spacesService.productImageExists(input.sku, input.position)) {
+    if (
+      await this.spacesService.productImageExists(input.sku, input.position)
+    ) {
       this.logger.log(
         `Reusing existing Spaces image for sku=${input.sku} position=${input.position}`,
       );
@@ -447,6 +481,16 @@ export class SyncFravegaProductImagesUseCase {
     );
   }
 
+  private productAlreadyHasImages(
+    product: FravegaPublishedProductItem,
+  ): boolean {
+    return Boolean(
+      product.images?.some(
+        (image) => typeof image.Url === 'string' && image.Url.length > 0,
+      ),
+    );
+  }
+
   private buildFravegaUpdatePayload(
     product: FravegaPublishedProductItem,
     images: FravegaUpdateImagePayload[],
@@ -484,6 +528,48 @@ export class SyncFravegaProductImagesUseCase {
           index += 1;
 
           await handler(items[currentIndex]);
+        }
+      },
+    );
+
+    await Promise.all(workers);
+  }
+
+  private async mapInBatches<T, TResult>(
+    items: T[],
+    mapper: (item: T) => Promise<TResult>,
+    concurrency: number,
+  ): Promise<TResult[]> {
+    const results = new Array<TResult>(items.length);
+
+    await this.processInBatchesWithConcurrency(
+      items,
+      async (item, index) => {
+        results[index] = await mapper(item);
+      },
+      concurrency,
+    );
+
+    return results;
+  }
+
+  private async processInBatchesWithConcurrency<T>(
+    items: T[],
+    handler: (item: T, index: number) => Promise<void>,
+    concurrency: number,
+  ): Promise<void> {
+    const normalizedConcurrency = Math.max(1, concurrency);
+    let index = 0;
+
+    const workers = Array.from(
+      { length: Math.min(normalizedConcurrency, items.length) },
+      async () => {
+        while (index < items.length) {
+          const currentIndex = index;
+
+          index += 1;
+
+          await handler(items[currentIndex], currentIndex);
         }
       },
     );

@@ -120,6 +120,10 @@ export class FravegaImagesSyncConfigService {
     return this.getNumber('FRAVEGA_IMAGES_BATCH_CONCURRENCY', 4);
   }
 
+  get perProductImageConcurrency(): number {
+    return this.getNumber('FRAVEGA_IMAGES_PER_PRODUCT_IMAGE_CONCURRENCY', 3);
+  }
+
   get maxImagesPerProduct(): number {
     return this.getNumber('FRAVEGA_IMAGES_MAX_IMAGES_PER_PRODUCT', 5);
   }
