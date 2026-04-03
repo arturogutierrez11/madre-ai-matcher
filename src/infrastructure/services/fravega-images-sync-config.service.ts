@@ -21,7 +21,7 @@ export class FravegaImagesSyncConfigService {
     return (
       this.configService.get<string>(
         'FRAVEGA_IMAGES_PUBLISHED_PRODUCTS_PATH',
-      ) ?? '/fravega/products'
+      ) ?? '/api/v1/item'
     );
   }
 
@@ -148,9 +148,7 @@ export class FravegaImagesSyncConfigService {
     input: PublishedItemsRequest,
   ): Record<string, string | number> {
     return {
-      offset: input.offset,
-      limit: input.limit,
-      ...(input.refIds?.length ? { refIds: input.refIds.join(',') } : {}),
+      page: input.offset + 1,
     };
   }
 

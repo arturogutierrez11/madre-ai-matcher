@@ -42,6 +42,20 @@ export interface SyncAllFravegaProductImagesInput {
   maxImagesPerProduct?: number;
   skipExistingUploadChecks?: boolean;
   fromEnd?: boolean;
+  onProgress?: (progress: SyncAllFravegaProductImagesProgress) => void;
+}
+
+export interface SyncAllFravegaProductImagesProgress {
+  phase: 'resolving-last-offset' | 'processing-pages' | 'completed-cycle';
+  currentOffset?: number;
+  lastNonEmptyOffset?: number;
+  probeOffset?: number;
+  batch?: number;
+  totalRequested?: number;
+  processed?: number;
+  skipped?: number;
+  failed?: number;
+  message?: string;
 }
 
 interface ProductSyncSuccess {
@@ -137,6 +151,10 @@ export class SyncFravegaProductImagesUseCase {
     const failures: ProductSyncFailure[] = [];
     let skipped = 0;
 
+    this.logger.log(
+      `Loaded ${publishedProducts.length} products from seller-center page=${offset + 1}. Valid products=${products.length}`,
+    );
+
     await this.processInBatchesWithConcurrency(
       products,
       async (product) => {
@@ -195,7 +213,7 @@ export class SyncFravegaProductImagesUseCase {
     const dryRun = input.dryRun ?? false;
     const maxBatches = input.maxBatches;
     const startedAtOffset = fromEnd
-      ? await this.resolveLastOffset(limit, input.startOffset)
+      ? await this.resolveLastOffset(limit, input.startOffset, input.onProgress)
       : (input.startOffset ?? 0);
 
     let currentOffset = startedAtOffset;
@@ -216,8 +234,19 @@ export class SyncFravegaProductImagesUseCase {
         break;
       }
 
+      input.onProgress?.({
+        phase: 'processing-pages',
+        currentOffset,
+        batch: batches + 1,
+        totalRequested,
+        processed,
+        skipped,
+        failed,
+        message: `Processing page ${currentOffset + 1}`,
+      });
+
       this.logger.log(
-        `Starting Fravega images batch ${batches + 1} offset=${currentOffset} limit=${limit} dryRun=${dryRun} fromEnd=${fromEnd}`,
+        `Starting Fravega images batch ${batches + 1} page=${currentOffset + 1} limit=${limit} dryRun=${dryRun} fromEnd=${fromEnd}`,
       );
 
       const batchResult = await this.execute({
@@ -249,17 +278,24 @@ export class SyncFravegaProductImagesUseCase {
       });
 
       if (batchResult.totalRequested === 0) {
+        this.logger.log(
+          `Finished Fravega images batch ${batches} page=${currentOffset + 1} with no products returned`,
+        );
         break;
       }
+
+      this.logger.log(
+        `Finished Fravega images batch ${batches} page=${currentOffset + 1}: processed=${batchResult.processed} patched=${batchResult.patched} skipped=${batchResult.skipped} failed=${batchResult.failed}`,
+      );
 
       if (fromEnd) {
         if (currentOffset === 0) {
           break;
         }
 
-        currentOffset = Math.max(0, currentOffset - limit);
+        currentOffset = Math.max(0, currentOffset - 1);
       } else {
-        currentOffset += limit;
+        currentOffset += 1;
       }
     }
 
@@ -287,16 +323,21 @@ export class SyncFravegaProductImagesUseCase {
     maxImagesPerProduct: number;
     skipExistingUploadChecks: boolean;
   }): Promise<ProductSyncSuccess | null> {
-    if (this.productAlreadyHasImages(input.product)) {
+    const skipReason = this.getSkipReason(input.product);
+
+    if (skipReason) {
       this.logger.log(
-        `Skipping refId ${input.product.refId} because it already has images in Fravega`,
+        `Skipping sku=${input.product.sku} refId=${input.product.refId}: ${skipReason}`,
       );
 
       return null;
     }
 
     this.logger.log(
-      `Loading madre-api images for refId ${input.product.refId}`,
+      `Processing sku=${input.product.sku} refId=${input.product.refId}`,
+    );
+    this.logger.log(
+      `Loading madre-api images for sku=${input.product.sku} refId=${input.product.refId}`,
     );
 
     const madreProduct = await this.madreProductsRepository.getProductBySku(
@@ -353,11 +394,21 @@ export class SyncFravegaProductImagesUseCase {
       payload.images.length > 0;
 
     if (shouldPatch) {
-      this.logger.log(`Updating Fravega product ${input.product.refId}`);
+      this.logger.log(
+        `Updating Fravega product sku=${input.product.sku} refId=${input.product.refId} with ${payload.images.length} images`,
+      );
 
       await this.fravegaImagesRepository.updateProductByRefId(
         input.product.refId,
         payload,
+      );
+
+      this.logger.log(
+        `Fravega product updated ok sku=${input.product.sku} refId=${input.product.refId}`,
+      );
+    } else {
+      this.logger.log(
+        `Prepared payload for sku=${input.product.sku} refId=${input.product.refId} images=${payload.images.length} dryRun=${input.dryRun}`,
       );
     }
 
@@ -421,7 +472,9 @@ export class SyncFravegaProductImagesUseCase {
     dryRun: boolean,
     skipExistingUploadChecks: boolean,
   ): Promise<PreparedProductImage> {
-    this.logger.log(`Processing image ${image.position} for refId ${sku}`);
+    this.logger.log(
+      `Processing image position=${image.position} for refId ${sku}`,
+    );
 
     const ensuredImage = await this.ensureProductImage({
       sku,
@@ -429,6 +482,10 @@ export class SyncFravegaProductImagesUseCase {
       dryRun,
       skipExistingUploadChecks,
     });
+
+    this.logger.log(
+      `${ensuredImage.reusedExistingImage ? 'Reused' : 'Prepared'} image position=${image.position} for refId ${sku}`,
+    );
 
     return {
       payloadImage: {
@@ -549,6 +606,14 @@ export class SyncFravegaProductImagesUseCase {
     );
   }
 
+  private getSkipReason(product: FravegaPublishedProductItem): string | null {
+    if (this.productAlreadyHasImages(product)) {
+      return 'already has images in Fravega';
+    }
+
+    return null;
+  }
+
   private buildFravegaUpdatePayload(
     product: FravegaPublishedProductItem,
     images: FravegaUpdateImagePayload[],
@@ -626,6 +691,7 @@ export class SyncFravegaProductImagesUseCase {
   private async resolveLastOffset(
     limit: number,
     startOffset?: number,
+    onProgress?: (progress: SyncAllFravegaProductImagesProgress) => void,
   ): Promise<number> {
     if (startOffset !== undefined) {
       return startOffset;
@@ -634,14 +700,195 @@ export class SyncFravegaProductImagesUseCase {
     const firstPage =
       await this.fravegaPublishedProductsRepository.getPublishedProductsPage({
         offset: 0,
-        limit: 1,
+        limit,
       });
 
-    if (!firstPage.total || firstPage.total <= 0) {
+    this.logger.log(
+      `First seller-center page metadata total=${firstPage.total ?? 'undefined'} size=${firstPage.size ?? 'undefined'} totalPages=${firstPage.totalPages ?? 'undefined'} page=${firstPage.page ?? 'undefined'} items=${firstPage.items.length}`,
+    );
+
+    if (
+      typeof firstPage.total === 'number' &&
+      firstPage.total >= 0 &&
+      typeof firstPage.size === 'number' &&
+      firstPage.size > 0
+    ) {
+      const totalPages = Math.ceil(firstPage.total / firstPage.size);
+      const lastPageIndex = Math.max(0, totalPages - 1);
+
+      onProgress?.({
+        phase: 'resolving-last-offset',
+        lastNonEmptyOffset: lastPageIndex,
+        message: `Resolved last page from total=${firstPage.total} size=${firstPage.size}`,
+      });
+
+      return lastPageIndex;
+    }
+
+    if (firstPage.totalPages && firstPage.totalPages > 0) {
+      const lastPageIndex = firstPage.totalPages - 1;
+
+      onProgress?.({
+        phase: 'resolving-last-offset',
+        lastNonEmptyOffset: lastPageIndex,
+        message: `Resolved last page from totalPages=${firstPage.totalPages}`,
+      });
+
+      return lastPageIndex;
+    }
+
+    return this.findLastNonEmptyOffsetWithoutTotal(limit, onProgress);
+  }
+
+  private async findLastNonEmptyOffsetWithoutTotal(
+    limit: number,
+    onProgress?: (progress: SyncAllFravegaProductImagesProgress) => void,
+  ): Promise<number> {
+    const firstPage =
+      await this.fravegaPublishedProductsRepository.getPublishedProductsPage({
+        offset: 0,
+        limit,
+      });
+
+    if (firstPage.items.length === 0) {
       return 0;
     }
 
-    return Math.max(0, Math.floor((firstPage.total - 1) / limit) * limit);
+    let previousProbeIndex = 0;
+    let previousProbeFingerprint = this.getPageFingerprint(firstPage.items);
+    let lastKnownDifferentIndex = 0;
+    let high = 1;
+
+    onProgress?.({
+      phase: 'resolving-last-offset',
+      probeOffset: high,
+      lastNonEmptyOffset: 0,
+      message: `Resolving last page. Probing pageIndex=${high}`,
+    });
+
+    while (true) {
+      const page =
+        await this.fravegaPublishedProductsRepository.getPublishedProductsPage({
+          offset: high,
+          limit,
+        });
+
+      if (page.items.length === 0) {
+        return this.findLastNonEmptyPageByEmptyBoundary(
+          previousProbeIndex,
+          high - 1,
+          limit,
+          onProgress,
+        );
+      }
+
+      const fingerprint = this.getPageFingerprint(page.items);
+
+      if (fingerprint === previousProbeFingerprint) {
+        if (previousProbeIndex === 0) {
+          return 0;
+        }
+
+        return this.findFirstPageWithFingerprint(
+          previousProbeFingerprint,
+          lastKnownDifferentIndex + 1,
+          previousProbeIndex,
+          limit,
+          onProgress,
+        );
+      }
+
+      lastKnownDifferentIndex = previousProbeIndex;
+      previousProbeIndex = high;
+      previousProbeFingerprint = fingerprint;
+      high *= 2;
+
+      onProgress?.({
+        phase: 'resolving-last-offset',
+        probeOffset: high,
+        lastNonEmptyOffset: previousProbeIndex,
+        message: `Resolving last page. Probing pageIndex=${high}`,
+      });
+    }
+  }
+
+  private async findLastNonEmptyPageByEmptyBoundary(
+    left: number,
+    right: number,
+    limit: number,
+    onProgress?: (progress: SyncAllFravegaProductImagesProgress) => void,
+  ): Promise<number> {
+    let low = left;
+    let high = right;
+    let lastNonEmptyPage = left;
+
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const page =
+        await this.fravegaPublishedProductsRepository.getPublishedProductsPage({
+          offset: middle,
+          limit,
+        });
+
+      if (page.items.length > 0) {
+        lastNonEmptyPage = middle;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+
+      onProgress?.({
+        phase: 'resolving-last-offset',
+        probeOffset: middle,
+        lastNonEmptyOffset: lastNonEmptyPage,
+        message: `Binary search pageIndex=${middle}`,
+      });
+    }
+
+    return lastNonEmptyPage;
+  }
+
+  private async findFirstPageWithFingerprint(
+    fingerprint: string,
+    left: number,
+    right: number,
+    limit: number,
+    onProgress?: (progress: SyncAllFravegaProductImagesProgress) => void,
+  ): Promise<number> {
+    let low = left;
+    let high = right;
+    let firstMatchingPage = right;
+
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const page =
+        await this.fravegaPublishedProductsRepository.getPublishedProductsPage({
+          offset: middle,
+          limit,
+        });
+
+      const currentFingerprint = this.getPageFingerprint(page.items);
+
+      if (currentFingerprint === fingerprint) {
+        firstMatchingPage = middle;
+        high = middle - 1;
+      } else {
+        low = middle + 1;
+      }
+
+      onProgress?.({
+        phase: 'resolving-last-offset',
+        probeOffset: middle,
+        lastNonEmptyOffset: firstMatchingPage,
+        message: `Fingerprint search pageIndex=${middle}`,
+      });
+    }
+
+    return firstMatchingPage;
+  }
+
+  private getPageFingerprint(items: FravegaPublishedProductItem[]): string {
+    return items.map((item) => item.id).join('|');
   }
 
   private formatError(error: unknown): string {

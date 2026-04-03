@@ -89,7 +89,7 @@ export class FravegaImagesSyncController {
         ? Number(startOffset)
         : offset
           ? Number(offset)
-          : 0,
+          : undefined,
       limit: limit
         ? Number(limit)
         : turboEnabled || fastEnabled
@@ -164,7 +164,7 @@ export class FravegaImagesSyncController {
         ? Number(params.startOffset)
         : params.offset
           ? Number(params.offset)
-          : 0,
+          : undefined,
       limit: params.limit
         ? Number(params.limit)
         : turboEnabled || fastEnabled

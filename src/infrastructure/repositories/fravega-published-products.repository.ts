@@ -24,6 +24,10 @@ export interface FravegaPublishedProductItem {
   video?: string;
   origin?: string;
   images?: FravegaProductImageReference[];
+  status?: {
+    code?: string;
+    message?: string;
+  };
   dimensions?: {
     height: number;
     length: number;
@@ -38,17 +42,23 @@ type PublishedProductsApiResponse =
       data?: FravegaPublishedProductItem[];
       items?: FravegaPublishedProductItem[];
       total?: number;
+      size?: number;
       count?: number;
       limit?: number;
       offset?: number;
+      page?: number;
+      totalPages?: number;
     };
 
 export interface FravegaPublishedProductsPage {
   items: FravegaPublishedProductItem[];
   total?: number;
+  size?: number;
   count?: number;
   limit?: number;
   offset?: number;
+  page?: number;
+  totalPages?: number;
 }
 
 @Injectable()
@@ -63,6 +73,10 @@ export class FravegaPublishedProductsRepository {
     limit: number;
     refIds?: string[];
   }): Promise<FravegaPublishedProductItem[]> {
+    if (params.refIds?.length) {
+      return this.findProductsByRefIds(params.refIds, params.limit);
+    }
+
     const page = await this.getPublishedProductsPage(params);
 
     return page.items;
@@ -88,16 +102,32 @@ export class FravegaPublishedProductsRepository {
       ),
     );
 
-    const items = Array.isArray(response.data)
-      ? response.data
-      : (response.data.data ?? response.data.items ?? []);
+    const items = this.extractItems(response.data);
+    const inferredPageSize = items.length > 0 ? items.length : undefined;
 
     const page: FravegaPublishedProductsPage = {
       items,
-      total: Array.isArray(response.data) ? undefined : response.data.total,
-      count: Array.isArray(response.data) ? undefined : response.data.count,
-      limit: Array.isArray(response.data) ? undefined : response.data.limit,
-      offset: Array.isArray(response.data) ? undefined : response.data.offset,
+      total: Array.isArray(response.data)
+        ? undefined
+        : this.toOptionalNumber(response.data.total),
+      size: Array.isArray(response.data)
+        ? inferredPageSize
+        : (this.toOptionalNumber(response.data.size) ?? inferredPageSize),
+      count: Array.isArray(response.data)
+        ? undefined
+        : this.toOptionalNumber(response.data.count),
+      limit: Array.isArray(response.data)
+        ? undefined
+        : this.toOptionalNumber(response.data.limit),
+      offset: Array.isArray(response.data)
+        ? undefined
+        : this.toOptionalNumber(response.data.offset),
+      page: Array.isArray(response.data)
+        ? undefined
+        : this.toOptionalNumber(response.data.page),
+      totalPages: Array.isArray(response.data)
+        ? undefined
+        : this.resolveTotalPages(response.data, inferredPageSize),
     };
 
     if (!params.refIds?.length) {
@@ -110,5 +140,102 @@ export class FravegaPublishedProductsRepository {
       ...page,
       items: items.filter((item) => refIds.has(item.refId)),
     };
+  }
+
+  private async findProductsByRefIds(
+    refIds: string[],
+    limit: number,
+  ): Promise<FravegaPublishedProductItem[]> {
+    const pendingRefIds = new Set(refIds);
+    const foundItems: FravegaPublishedProductItem[] = [];
+    let offset = 0;
+
+    while (pendingRefIds.size > 0) {
+      const page = await this.getPublishedProductsPage({
+        offset,
+        limit,
+      });
+
+      if (page.items.length === 0) {
+        break;
+      }
+
+      for (const item of page.items) {
+        if (pendingRefIds.has(item.refId)) {
+          foundItems.push(item);
+          pendingRefIds.delete(item.refId);
+        }
+      }
+
+      offset += 1;
+    }
+
+    return foundItems;
+  }
+
+  private resolveTotalPages(
+    response: Exclude<
+      PublishedProductsApiResponse,
+      FravegaPublishedProductItem[]
+    >,
+    fallbackSize?: number,
+  ): number | undefined {
+    const totalPages = this.toOptionalNumber(response.totalPages);
+
+    if (typeof totalPages === 'number' && totalPages > 0) {
+      return totalPages;
+    }
+
+    const total = this.toOptionalNumber(response.total);
+    const size = this.toOptionalNumber(response.size) ?? fallbackSize;
+
+    if (
+      typeof total === 'number' &&
+      total >= 0 &&
+      typeof size === 'number' &&
+      size > 0
+    ) {
+      return Math.ceil(total / size);
+    }
+
+    return undefined;
+  }
+
+  private toOptionalNumber(value: unknown): number | undefined {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  private extractItems(
+    response: PublishedProductsApiResponse,
+  ): FravegaPublishedProductItem[] {
+    if (Array.isArray(response)) {
+      return response;
+    }
+
+    if (Array.isArray(response.items)) {
+      return response.items;
+    }
+
+    if (Array.isArray(response.data)) {
+      return response.data;
+    }
+
+    if (
+      response.data &&
+      typeof response.data === 'object' &&
+      Array.isArray(
+        (response.data as { items?: FravegaPublishedProductItem[] }).items,
+      )
+    ) {
+      return (response.data as { items: FravegaPublishedProductItem[] }).items;
+    }
+
+    return [];
   }
 }
