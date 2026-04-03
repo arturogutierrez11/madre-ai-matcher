@@ -323,6 +323,19 @@ export class SyncFravegaProductImagesUseCase {
     maxImagesPerProduct: number;
     skipExistingUploadChecks: boolean;
   }): Promise<ProductSyncSuccess | null> {
+    if (
+      await this.productImagesRepository.hasProcessedProduct(
+        input.product.sku,
+        input.product.refId,
+      )
+    ) {
+      this.logger.log(
+        `Skipping sku=${input.product.sku} refId=${input.product.refId}: already processed in local cache`,
+      );
+
+      return null;
+    }
+
     const skipReason = this.getSkipReason(input.product);
 
     if (skipReason) {
@@ -398,13 +411,22 @@ export class SyncFravegaProductImagesUseCase {
         `Updating Fravega product sku=${input.product.sku} refId=${input.product.refId} with ${payload.images.length} images`,
       );
 
-      await this.fravegaImagesRepository.updateProductByRefId(
-        input.product.refId,
-        payload,
-      );
+      const updateResponse =
+        await this.fravegaImagesRepository.updateProductByRefId(
+          input.product.refId,
+          payload,
+        );
 
       this.logger.log(
-        `Fravega product updated ok sku=${input.product.sku} refId=${input.product.refId}`,
+        `Fravega product updated ok sku=${input.product.sku} refId=${input.product.refId} status=${updateResponse.status}`,
+      );
+
+      await this.productImagesRepository.markProductProcessed(
+        input.product.sku,
+        input.product.refId,
+      );
+      this.logger.log(
+        `Cached processed sku=${input.product.sku} refId=${input.product.refId}`,
       );
     } else {
       this.logger.log(

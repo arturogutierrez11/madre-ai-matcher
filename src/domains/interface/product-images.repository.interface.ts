@@ -10,4 +10,6 @@ export interface PersistedProductImage {
 
 export interface IProductImagesRepository {
   saveMany(images: PersistedProductImage[]): Promise<void>;
+  hasProcessedProduct(sku: string, refId: string): Promise<boolean>;
+  markProductProcessed(sku: string, refId: string): Promise<void>;
 }

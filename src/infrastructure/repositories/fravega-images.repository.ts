@@ -31,6 +31,11 @@ export interface FravegaUpdateProductPayload {
   images: FravegaUpdateImagePayload[];
 }
 
+export interface FravegaUpdateProductResponse {
+  status: number;
+  data: unknown;
+}
+
 @Injectable()
 export class FravegaImagesRepository {
   private readonly logger = new Logger(FravegaImagesRepository.name);
@@ -43,7 +48,7 @@ export class FravegaImagesRepository {
   async updateProductByRefId(
     refId: string,
     payload: FravegaUpdateProductPayload,
-  ): Promise<void> {
+  ): Promise<FravegaUpdateProductResponse> {
     const url = `${this.configService.fravegaApiBaseUrl}${this.configService.buildFravegaUpdatePath(refId)}`;
     const headers = this.configService.fravegaApiHeaders;
 
@@ -62,6 +67,17 @@ export class FravegaImagesRepository {
       this.logger.log(
         `Marketplace API response status=${response.status} body=${this.safeSerialize(response.data)}`,
       );
+
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(
+          `Marketplace API returned unexpected status ${response.status}`,
+        );
+      }
+
+      return {
+        status: response.status,
+        data: response.data,
+      };
     } catch (error) {
       if (error instanceof AxiosError) {
         this.logger.error(
