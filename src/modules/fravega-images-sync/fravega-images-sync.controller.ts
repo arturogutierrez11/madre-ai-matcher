@@ -69,6 +69,86 @@ export class FravegaImagesSyncController {
     return this.syncFravegaProductImagesUseCase.execute(input);
   }
 
+  @Get('run-sku')
+  runSku(
+    @Query('sku') sku?: string,
+    @Query('dryRun') dryRun?: string,
+    @Query('turbo') turbo?: string,
+    @Query('fast') fast?: string,
+  ) {
+    const turboEnabled = turbo === 'true';
+    const fastEnabled = fast === 'true';
+    const speedConfig = fastEnabled ? this.fastConfig : this.turboConfig;
+
+    if (!sku?.trim()) {
+      return {
+        totalRequested: 1,
+        processed: 0,
+        patched: 0,
+        skipped: 0,
+        failed: 1,
+        products: [],
+        failures: [
+          { fravegaSku: sku, error: 'Missing required query param: sku' },
+        ],
+      };
+    }
+
+    return this.syncFravegaProductImagesUseCase.executeSingleBySku({
+      sku,
+      dryRun: dryRun === 'true',
+      perProductImageConcurrency:
+        turboEnabled || fastEnabled
+          ? speedConfig.perProductImageConcurrency
+          : undefined,
+      maxImagesPerProduct: fastEnabled
+        ? this.fastConfig.maxImagesPerProduct
+        : undefined,
+      skipExistingUploadChecks: fastEnabled
+        ? this.fastConfig.skipExistingUploadChecks
+        : undefined,
+    });
+  }
+
+  @Get('run-item')
+  runItem(
+    @Query('id') id?: string,
+    @Query('dryRun') dryRun?: string,
+    @Query('turbo') turbo?: string,
+    @Query('fast') fast?: string,
+  ) {
+    const turboEnabled = turbo === 'true';
+    const fastEnabled = fast === 'true';
+    const speedConfig = fastEnabled ? this.fastConfig : this.turboConfig;
+
+    if (!id?.trim()) {
+      return {
+        totalRequested: 1,
+        processed: 0,
+        patched: 0,
+        skipped: 0,
+        failed: 1,
+        products: [],
+        failures: [{ error: 'Missing required query param: id' }],
+      };
+    }
+
+    return this.syncFravegaProductImagesUseCase.executeSingleByItemId({
+      id,
+      dryRun: dryRun === 'true',
+      perProductImageConcurrency:
+        turboEnabled || fastEnabled
+          ? speedConfig.perProductImageConcurrency
+          : undefined,
+      maxImagesPerProduct: fastEnabled
+        ? this.fastConfig.maxImagesPerProduct
+        : undefined,
+      skipExistingUploadChecks: fastEnabled
+        ? this.fastConfig.skipExistingUploadChecks
+        : undefined,
+    });
+  }
+
   @Get('run-all')
   runAll(
     @Query('startOffset') startOffset?: string,

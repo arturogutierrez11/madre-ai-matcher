@@ -53,7 +53,7 @@ export class FravegaImagesRepository {
     const headers = this.configService.fravegaApiHeaders;
 
     this.logger.log(
-      `Marketplace API request curl: ${this.buildCurl(url, headers, payload)}`,
+      `${this.tag('FVG', 'cyan')} ${this.color('PUT', 'blue')} refId=${refId} images=${payload.images.length} url=${url}`,
     );
 
     try {
@@ -65,7 +65,7 @@ export class FravegaImagesRepository {
       );
 
       this.logger.log(
-        `Marketplace API response status=${response.status} body=${this.safeSerialize(response.data)}`,
+        `${this.tag('FVG', 'cyan')} ${this.color('OK', 'green')} refId=${refId} status=${response.status}`,
       );
 
       if (response.status < 200 || response.status >= 300) {
@@ -81,28 +81,12 @@ export class FravegaImagesRepository {
     } catch (error) {
       if (error instanceof AxiosError) {
         this.logger.error(
-          `Marketplace API error status=${error.response?.status} body=${this.safeSerialize(error.response?.data)}`,
+          `${this.tag('FVG', 'cyan')} ${this.color('ERR', 'red')} refId=${refId} status=${error.response?.status ?? 'unknown'} body=${this.safeSerialize(error.response?.data)}`,
         );
       }
 
       throw error;
     }
-  }
-
-  private buildCurl(
-    url: string,
-    headers: Record<string, string>,
-    payload: FravegaUpdateProductPayload,
-  ): string {
-    const headerArgs = Object.entries(headers)
-      .map(
-        ([key, value]) => `-H '${this.escapeSingleQuotes(`${key}: ${value}`)}'`,
-      )
-      .join(' ');
-
-    const body = this.escapeSingleQuotes(JSON.stringify(payload));
-
-    return `curl -X PUT '${url}' ${headerArgs} -d '${body}'`.trim();
   }
 
   private safeSerialize(value: unknown): string {
@@ -112,8 +96,32 @@ export class FravegaImagesRepository {
       return String(value);
     }
   }
+  private tag(
+    label: string,
+    color: 'cyan' | 'green' | 'yellow' | 'red' | 'blue',
+  ): string {
+    return `${this.ansi(color)}[${label}]${this.ansi('reset')}`;
+  }
 
-  private escapeSingleQuotes(value: string): string {
-    return value.replace(/'/g, `'\"'\"'`);
+  private color(
+    text: string,
+    color: 'cyan' | 'green' | 'yellow' | 'red' | 'blue' | 'reset',
+  ): string {
+    return `${this.ansi(color)}${text}${this.ansi('reset')}`;
+  }
+
+  private ansi(
+    color: 'cyan' | 'green' | 'yellow' | 'red' | 'blue' | 'reset',
+  ): string {
+    const colors = {
+      reset: '\u001b[0m',
+      red: '\u001b[31m',
+      green: '\u001b[32m',
+      yellow: '\u001b[33m',
+      blue: '\u001b[34m',
+      cyan: '\u001b[36m',
+    } as const;
+
+    return colors[color];
   }
 }

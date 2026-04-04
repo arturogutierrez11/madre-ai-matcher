@@ -152,7 +152,7 @@ export class SyncFravegaProductImagesUseCase {
     let skipped = 0;
 
     this.logger.log(
-      `Loaded ${publishedProducts.length} products from seller-center page=${offset + 1}. Valid products=${products.length}`,
+      `${this.tag('PAGE', 'blue')} loaded=${publishedProducts.length} valid=${products.length} page=${offset + 1}`,
     );
 
     await this.processInBatchesWithConcurrency(
@@ -187,7 +187,7 @@ export class SyncFravegaProductImagesUseCase {
           });
 
           this.logger.error(
-            `Failed syncing images for refId ${product.refId}: ${message}`,
+            `${this.tag('FAIL', 'red')} sku=${product.sku} refId=${product.refId} ${message}`,
           );
         }
       },
@@ -203,6 +203,195 @@ export class SyncFravegaProductImagesUseCase {
       products: successes,
       failures,
     };
+  }
+
+  async executeSingleBySku(input: {
+    sku: string;
+    dryRun?: boolean;
+    perProductImageConcurrency?: number;
+    maxImagesPerProduct?: number;
+    skipExistingUploadChecks?: boolean;
+  }): Promise<SyncFravegaProductImagesResult> {
+    this.logger.log(`${this.tag('MANUAL', 'cyan')} start sku=${input.sku}`);
+
+    const product =
+      await this.fravegaPublishedProductsRepository.findProductBySku(input.sku);
+
+    if (!product) {
+      this.logger.warn(
+        `${this.tag('MISS', 'yellow')} sku=${input.sku} not found`,
+      );
+
+      return {
+        totalRequested: 1,
+        processed: 0,
+        patched: 0,
+        skipped: 0,
+        failed: 1,
+        products: [],
+        failures: [
+          {
+            fravegaSku: input.sku,
+            error: 'Product not found in seller-center',
+          },
+        ],
+      };
+    }
+
+    this.logger.log(
+      `${this.tag('FOUND', 'green')} sku=${product.sku} refId=${product.refId}`,
+    );
+
+    try {
+      const result = await this.processSingleProduct({
+        product,
+        dryRun: input.dryRun ?? false,
+        perProductImageConcurrency:
+          input.perProductImageConcurrency ??
+          this.configService.perProductImageConcurrency,
+        maxImagesPerProduct:
+          input.maxImagesPerProduct ?? this.configService.maxImagesPerProduct,
+        skipExistingUploadChecks: input.skipExistingUploadChecks ?? false,
+      });
+
+      if (result === null) {
+        this.logger.log(
+          `${this.tag('SKIP', 'yellow')} sku=${product.sku} refId=${product.refId}`,
+        );
+
+        return {
+          totalRequested: 1,
+          processed: 0,
+          patched: 0,
+          skipped: 1,
+          failed: 0,
+          products: [],
+          failures: [],
+        };
+      }
+
+      return {
+        totalRequested: 1,
+        processed: 1,
+        patched: result.updated ? 1 : 0,
+        skipped: 0,
+        failed: 0,
+        products: [result],
+        failures: [],
+      };
+    } catch (error) {
+      const message = this.formatError(error);
+
+      this.logger.error(
+        `${this.tag('FAIL', 'red')} sku=${product.sku} refId=${product.refId} ${message}`,
+      );
+
+      return {
+        totalRequested: 1,
+        processed: 1,
+        patched: 0,
+        skipped: 0,
+        failed: 1,
+        products: [],
+        failures: [
+          {
+            refId: product.refId,
+            fravegaSku: product.sku,
+            error: message,
+          },
+        ],
+      };
+    }
+  }
+
+  async executeSingleByItemId(input: {
+    id: string;
+    dryRun?: boolean;
+    perProductImageConcurrency?: number;
+    maxImagesPerProduct?: number;
+    skipExistingUploadChecks?: boolean;
+  }): Promise<SyncFravegaProductImagesResult> {
+    this.logger.log(`${this.tag('MANUAL', 'cyan')} start id=${input.id}`);
+
+    const product =
+      await this.fravegaPublishedProductsRepository.findProductById(input.id);
+
+    if (!product) {
+      this.logger.warn(
+        `${this.tag('MISS', 'yellow')} id=${input.id} not found`,
+      );
+
+      return {
+        totalRequested: 1,
+        processed: 0,
+        patched: 0,
+        skipped: 0,
+        failed: 1,
+        products: [],
+        failures: [{ error: 'Product not found in seller-center by id' }],
+      };
+    }
+
+    this.logger.log(
+      `${this.tag('FOUND', 'green')} id=${product.id} sku=${product.sku} refId=${product.refId}`,
+    );
+
+    try {
+      const result = await this.processSingleProduct({
+        product,
+        dryRun: input.dryRun ?? false,
+        perProductImageConcurrency:
+          input.perProductImageConcurrency ??
+          this.configService.perProductImageConcurrency,
+        maxImagesPerProduct:
+          input.maxImagesPerProduct ?? this.configService.maxImagesPerProduct,
+        skipExistingUploadChecks: input.skipExistingUploadChecks ?? false,
+      });
+
+      if (result === null) {
+        return {
+          totalRequested: 1,
+          processed: 0,
+          patched: 0,
+          skipped: 1,
+          failed: 0,
+          products: [],
+          failures: [],
+        };
+      }
+
+      return {
+        totalRequested: 1,
+        processed: 1,
+        patched: result.updated ? 1 : 0,
+        skipped: 0,
+        failed: 0,
+        products: [result],
+        failures: [],
+      };
+    } catch (error) {
+      const message = this.formatError(error);
+
+      this.logger.error(
+        `${this.tag('FAIL', 'red')} id=${product.id} sku=${product.sku} refId=${product.refId} ${message}`,
+      );
+
+      return {
+        totalRequested: 1,
+        processed: 1,
+        patched: 0,
+        skipped: 0,
+        failed: 1,
+        products: [],
+        failures: [
+          {
+            refId: product.refId,
+            fravegaSku: product.sku,
+            error: message,
+          },
+        ],
+      };
+    }
   }
 
   async executeAll(
@@ -246,7 +435,7 @@ export class SyncFravegaProductImagesUseCase {
       });
 
       this.logger.log(
-        `Starting Fravega images batch ${batches + 1} page=${currentOffset + 1} limit=${limit} dryRun=${dryRun} fromEnd=${fromEnd}`,
+        `${this.tag('BATCH', 'blue')} start=${batches + 1} page=${currentOffset + 1} dryRun=${dryRun} fromEnd=${fromEnd}`,
       );
 
       const batchResult = await this.execute({
@@ -279,13 +468,13 @@ export class SyncFravegaProductImagesUseCase {
 
       if (batchResult.totalRequested === 0) {
         this.logger.log(
-          `Finished Fravega images batch ${batches} page=${currentOffset + 1} with no products returned`,
+          `${this.tag('BATCH', 'blue')} done=${batches} page=${currentOffset + 1} empty`,
         );
         break;
       }
 
       this.logger.log(
-        `Finished Fravega images batch ${batches} page=${currentOffset + 1}: processed=${batchResult.processed} patched=${batchResult.patched} skipped=${batchResult.skipped} failed=${batchResult.failed}`,
+        `${this.tag('BATCH', 'blue')} done=${batches} page=${currentOffset + 1} processed=${batchResult.processed} patched=${batchResult.patched} skipped=${batchResult.skipped} failed=${batchResult.failed}`,
       );
 
       if (fromEnd) {
@@ -323,6 +512,16 @@ export class SyncFravegaProductImagesUseCase {
     maxImagesPerProduct: number;
     skipExistingUploadChecks: boolean;
   }): Promise<ProductSyncSuccess | null> {
+    const skipReason = this.getSkipReason(input.product);
+
+    if (skipReason) {
+      this.logger.log(
+        `${this.tag('SKIP', 'yellow')} sku=${input.product.sku} refId=${input.product.refId} reason="${skipReason}"`,
+      );
+
+      return null;
+    }
+
     if (
       await this.productImagesRepository.hasProcessedProduct(
         input.product.sku,
@@ -330,27 +529,15 @@ export class SyncFravegaProductImagesUseCase {
       )
     ) {
       this.logger.log(
-        `Skipping sku=${input.product.sku} refId=${input.product.refId}: already processed in local cache`,
+        `${this.tag('CACHE', 'cyan')} sku=${input.product.sku} refId=${input.product.refId} hit but Fravega still has no images; retrying`,
       );
-
-      return null;
-    }
-
-    const skipReason = this.getSkipReason(input.product);
-
-    if (skipReason) {
-      this.logger.log(
-        `Skipping sku=${input.product.sku} refId=${input.product.refId}: ${skipReason}`,
-      );
-
-      return null;
     }
 
     this.logger.log(
-      `Processing sku=${input.product.sku} refId=${input.product.refId}`,
+      `${this.tag('ITEM', 'green')} sku=${input.product.sku} refId=${input.product.refId}`,
     );
     this.logger.log(
-      `Loading madre-api images for sku=${input.product.sku} refId=${input.product.refId}`,
+      `${this.tag('MADRE', 'cyan')} load sku=${input.product.sku} refId=${input.product.refId}`,
     );
 
     const madreProduct = await this.madreProductsRepository.getProductBySku(
@@ -408,7 +595,7 @@ export class SyncFravegaProductImagesUseCase {
 
     if (shouldPatch) {
       this.logger.log(
-        `Updating Fravega product sku=${input.product.sku} refId=${input.product.refId} with ${payload.images.length} images`,
+        `${this.tag('UPDATE', 'blue')} sku=${input.product.sku} refId=${input.product.refId} images=${payload.images.length}`,
       );
 
       const updateResponse =
@@ -418,7 +605,7 @@ export class SyncFravegaProductImagesUseCase {
         );
 
       this.logger.log(
-        `Fravega product updated ok sku=${input.product.sku} refId=${input.product.refId} status=${updateResponse.status}`,
+        `${this.tag('DONE', 'green')} sku=${input.product.sku} refId=${input.product.refId} status=${updateResponse.status}`,
       );
 
       await this.productImagesRepository.markProductProcessed(
@@ -426,11 +613,11 @@ export class SyncFravegaProductImagesUseCase {
         input.product.refId,
       );
       this.logger.log(
-        `Cached processed sku=${input.product.sku} refId=${input.product.refId}`,
+        `${this.tag('CACHE', 'cyan')} saved sku=${input.product.sku} refId=${input.product.refId}`,
       );
     } else {
       this.logger.log(
-        `Prepared payload for sku=${input.product.sku} refId=${input.product.refId} images=${payload.images.length} dryRun=${input.dryRun}`,
+        `${this.tag('DRY', 'yellow')} sku=${input.product.sku} refId=${input.product.refId} images=${payload.images.length}`,
       );
     }
 
@@ -495,7 +682,7 @@ export class SyncFravegaProductImagesUseCase {
     skipExistingUploadChecks: boolean,
   ): Promise<PreparedProductImage> {
     this.logger.log(
-      `Processing image position=${image.position} for refId ${sku}`,
+      `${this.tag('IMG', 'blue')} refId=${sku} position=${image.position} start`,
     );
 
     const ensuredImage = await this.ensureProductImage({
@@ -506,7 +693,7 @@ export class SyncFravegaProductImagesUseCase {
     });
 
     this.logger.log(
-      `${ensuredImage.reusedExistingImage ? 'Reused' : 'Prepared'} image position=${image.position} for refId ${sku}`,
+      `${this.tag('IMG', ensuredImage.reusedExistingImage ? 'yellow' : 'green')} refId=${sku} position=${image.position} ${ensuredImage.reusedExistingImage ? 'reused' : 'ready'}`,
     );
 
     return {
@@ -631,6 +818,10 @@ export class SyncFravegaProductImagesUseCase {
   private getSkipReason(product: FravegaPublishedProductItem): string | null {
     if (this.productAlreadyHasImages(product)) {
       return 'already has images in Fravega';
+    }
+
+    if (product.status?.code !== 'incomplete') {
+      return `status.code is ${product.status?.code ?? 'undefined'}`;
     }
 
     return null;
@@ -950,5 +1141,27 @@ export class SyncFravegaProductImagesUseCase {
     } catch {
       return String(value);
     }
+  }
+
+  private tag(
+    label: string,
+    color: 'cyan' | 'green' | 'yellow' | 'red' | 'blue',
+  ): string {
+    return `${this.ansi(color)}[${label}]${this.ansi('reset')}`;
+  }
+
+  private ansi(
+    color: 'cyan' | 'green' | 'yellow' | 'red' | 'blue' | 'reset',
+  ): string {
+    const colors = {
+      reset: '\u001b[0m',
+      red: '\u001b[31m',
+      green: '\u001b[32m',
+      yellow: '\u001b[33m',
+      blue: '\u001b[34m',
+      cyan: '\u001b[36m',
+    } as const;
+
+    return colors[color];
   }
 }
